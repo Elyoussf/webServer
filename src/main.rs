@@ -1,15 +1,22 @@
 // Setting the server up...
+mod lib;
 use std::fs;
 use std::net::TcpListener;
 use std::net::TcpStream;
+use lib::ThreadPool;
 use std::io::prelude::*;
 fn  main(){
     let listener = TcpListener::bind("127.0.0.1:7878").unwrap();
-
+    // add a thread pool to allow multitasking
+    let pool = ThreadPool::new(4);
     for stream in listener.incoming(){
 
         //let stream = stream.unwrap();
-        handle_request(stream.unwrap());
+
+        pool.execute(|| {
+            handle_request(stream.unwrap());
+        })
+       
 
     }
 }
