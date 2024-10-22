@@ -1,27 +1,58 @@
+use std::sync::mpsc;
+use std::sync::Arc;
+use std::sync::Mutex;
 use std::thread;
 
-pub struct ThreadPool{
-    threads : Vec<thread::JoinHandle<()>>
+type Job = Box<dyn FnOnce() + Send + 'static>;
+
+pub struct ThreadPool {
+    sender: mpsc::Sender<Job>,
+    workers: Vec<WorkerThread>,
 }
 
+struct WorkerThread {
+    id: usize,
+    thread: Option<thread::JoinHandle<()>>,
+}
+
+impl WorkerThread 
+{
+    fn new(id: usize, receiver: Arc<Mutex<mpsc::Receiver<Job>>>) -> WorkerThread {
+        let thread = thread::spawn(move || {
+            while let Ok(job) = receiver.lock().unwrap().recv() {
+                println!("Worker {} got a job; executing.", id);
+                job();
+            }
+        });
+
+        WorkerThread {
+            id,
+            thread: Some(thread),
+        }
+    }
+}
 
 impl ThreadPool {
-    pub fn new (number : usize) -> ThreadPool{
+    pub fn new(size: usize) -> ThreadPool {
+        assert!(size > 0);
 
-        // new will panic if the number of thread allowed is zero or negative because that has no sense
-        assert!(number>0);
-        // we will create a vector that should hold the joinhandler that issues from spawn method when a thread is created
-        let threads = Vec::with_capacity(number); // we utilized with_capacity for efficiency sake!!!
-        for _ in 0..number{
-            // logic to create threads and fill in threads vector
+        let (sender, receiver) = mpsc::channel();
+        let receiver = Arc::new(Mutex::new(receiver));
+
+        let mut workers = Vec::with_capacity(size);
+
+        for id in 0..size {
+            workers.push(WorkerThread::new(id, Arc::clone(&receiver)));
         }
-        
-        ThreadPool { threads}
+
+        ThreadPool { sender, workers }
     }
-    pub fn execute<F>(&self,f : F)
-    where 
-        F:FnOnce() + Send + 'static
+
+    pub fn execute<F>(&self, f: F)
+    where
+        F: FnOnce() + Send + 'static,
     {
-        
+        let job = Box::new(f);
+        self.sender.send(job).unwrap();
     }
 }
